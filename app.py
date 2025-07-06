@@ -1,0 +1,168 @@
+# File: app.py (Combined Flask Backend with Email and Article System)
+
+from flask import Flask, render_template, request, redirect, url_for, session, flash
+from flask_mail import Mail, Message
+import os, json, markdown, datetime, qrcode, base64
+from io import BytesIO
+
+app = Flask(__name__)
+app.secret_key = "supersecure"
+
+# Email configuration
+app.config['MAIL_SERVER'] = 'smtp.gmail.com'
+app.config['MAIL_PORT'] = 587
+app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USERNAME'] = 'your_email@gmail.com'  # change to your email
+app.config['MAIL_PASSWORD'] = 'your_password'         # use app password or real password
+mail = Mail(app)
+
+ARTICLE_DIR = "articles"
+if not os.path.exists(ARTICLE_DIR):
+    os.makedirs(ARTICLE_DIR)
+
+# Temporary user store (can be extended to DB)
+users = {
+    "admin": {"password": "pass123", "email": "admin@example.com"}
+}
+
+def load_articles():
+    articles = []
+    for filename in os.listdir(ARTICLE_DIR):
+        if filename.endswith(".json"):
+            with open(os.path.join(ARTICLE_DIR, filename), "r") as f:
+                data = json.load(f)
+                data["filename"] = filename
+                articles.append(data)
+    return sorted(articles, key=lambda x: x["date"], reverse=True)
+
+@app.route("/")
+def index():
+    q = request.args.get("q", "").lower()
+    articles = load_articles()
+    if q:
+        articles = [a for a in articles if q in a["title"].lower() or q in " ".join(a.get("tags", [])).lower()]
+    return render_template("index.html", articles=articles)
+
+@app.route("/article/<filename>")
+def article(filename):
+    path = os.path.join(ARTICLE_DIR, filename)
+    if not os.path.exists(path):
+        return "Article not found", 404
+    with open(path, "r") as f:
+        data = json.load(f)
+        html = markdown.markdown(data["content"])
+    return render_template("article.html", title=data["title"], content=html, tags=data.get("tags", []), date=data["date"], filename=filename)
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        username = request.form['username']
+        password = request.form['password']
+        user = users.get(username)
+        if user and user['password'] == password:
+            session["logged_in"] = True
+            session["username"] = username
+            flash("Login successful!", "success")
+            return redirect(url_for("index"))
+        else:
+            flash("Invalid credentials!", "danger")
+    return render_template("login_register.html")
+
+@app.route("/register", methods=["POST"])
+def register():
+    username = request.form['username']
+    email = request.form['email']
+    password = request.form['password']
+
+    if username in users:
+        flash("Username already exists!", "warning")
+        return redirect(url_for("login"))
+
+    users[username] = {"password": password, "email": email}
+
+    # Generate QR for password
+    qr = qrcode.make(password)
+    qr_img_io = BytesIO()
+    qr.save(qr_img_io, format='PNG')
+    qr_img_io.seek(0)
+    img_data = base64.b64encode(qr_img_io.read()).decode()
+
+    # Send welcome email
+    msg = Message(f"Welcome to Peachy Blog, {username}!", sender=app.config['MAIL_USERNAME'], recipients=[email])
+    msg.body = f"Hello {username}!\n\nWelcome to Peachy Blog.\nYour login credentials:\nUsername: {username}\nPassword: {password}\n\nEnjoy blogging!"
+    msg.html = f"""
+    <h2>Welcome to Peachy Blog 🍑</h2>
+    <p>Hello <b>{username}</b>,</p>
+    <p>Thank you for registering!</p>
+    <p><b>Username:</b> {username}<br><b>Password:</b> {password}</p>
+    <p>Scan this QR to store your password:</p>
+    <img src='data:image/png;base64,{img_data}' alt='QR Code'>
+    """
+    mail.send(msg)
+
+    flash("Registration successful! Check your email.", "success")
+    return redirect(url_for("login"))
+
+@app.route("/forgot-password")
+def forgot():
+    return "Password reset functionality coming soon."
+
+@app.route("/logout")
+def logout():
+    session.pop("logged_in", None)
+    session.pop("username", None)
+    return redirect(url_for("index"))
+
+@app.route("/new", methods=["GET", "POST"])
+@app.route("/edit/<filename>", methods=["GET", "POST"])
+def new_article(filename=None):
+    if not session.get("logged_in"):
+        return redirect(url_for("login"))
+
+    edit_mode = filename is not None
+    article = {}
+
+    if edit_mode:
+        path = os.path.join(ARTICLE_DIR, filename)
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                article = json.load(f)
+
+    if request.method == "POST":
+        title = request.form["title"]
+        content = request.form["content"]
+        tags = [t.strip() for t in request.form["tags"].split(",") if t.strip()]
+        date = article.get("date", datetime.datetime.now().strftime("%Y-%m-%d"))
+
+        data = {
+            "title": title,
+            "content": content,
+            "tags": tags,
+            "date": date
+        }
+
+        if edit_mode:
+            with open(os.path.join(ARTICLE_DIR, filename), "w") as f:
+                json.dump(data, f, indent=2)
+        else:
+            filename = datetime.datetime.now().strftime("%Y%m%d%H%M%S") + ".json"
+            with open(os.path.join(ARTICLE_DIR, filename), "w") as f:
+                json.dump(data, f, indent=2)
+
+        return redirect(url_for("index"))
+
+    return render_template("new_article.html", edit_mode=edit_mode, article=article)
+
+@app.route("/delete/<filename>")
+def delete_article(filename):
+    if not session.get("logged_in"):
+        return redirect(url_for("login"))
+
+    path = os.path.join(ARTICLE_DIR, filename)
+    if os.path.exists(path):
+        os.remove(path)
+        flash("Article deleted")
+    return redirect(url_for("index"))
+
+if __name__ == "__main__":
+    app.run(debug=True, host="0.0.0.0", port=5000)

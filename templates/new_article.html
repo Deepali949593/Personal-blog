@@ -1,0 +1,21 @@
+
+<!-- new_article.html -->
+{% extends "base.html" %}
+{% block title %}New Article{% endblock %}
+{% block content %}
+<div class="card p-4 shadow-sm">
+  <h2>{{ 'Edit' if edit_mode else 'New' }} Article</h2>
+  <form method="post">
+    <div class="mb-3">
+      <input type="text" name="title" value="{{ article.title if edit_mode else '' }}" class="form-control" placeholder="Title" required>
+    </div>
+    <div class="mb-3">
+      <textarea name="content" class="form-control" rows="10" placeholder="Content in Markdown">{{ article.content if edit_mode else '' }}</textarea>
+    </div>
+    <div class="mb-3">
+      <input type="text" name="tags" value="{{ ', '.join(article.tags) if edit_mode else '' }}" class="form-control" placeholder="Tags (comma-separated)">
+    </div>
+    <button type="submit" class="btn btn-peach">{{ 'Update' if edit_mode else 'Publish' }}</button>
+  </form>
+</div>
+{% endblock %}

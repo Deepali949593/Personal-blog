@@ -1,0 +1,41 @@
+/* style.css */
+body {
+  font-family: 'Playfair Display', serif;
+  background-color: #fef6f0;
+  color: #4a3f35;
+}
+
+.bg-peach {
+  background-color: #ffb396 !important;
+}
+
+.bg-beige {
+  background-color: #fff7e6;
+}
+
+.btn-peach {
+  background-color: #ffb396;
+  border: none;
+  color: white;
+}
+
+.btn-outline-peach {
+  border: 1px solid #ffb396;
+  color: #ff7f50;
+}
+
+.btn-outline-peach:hover,
+.btn-peach:hover {
+  background-color: #ff9e7b;
+  color: white;
+  border: none;
+}
+
+.card-title a {
+  color: #4a3f35;
+  text-decoration: none;
+}
+
+.card-title a:hover {
+  text-decoration: underline;
+}
