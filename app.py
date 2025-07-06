@@ -1,7 +1,8 @@
-# File: app.py (Combined Flask Backend with Email and Article System)
+# File: app.py (Flask Blog with Supabase, Email, QR Login/Register)
 
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 from flask_mail import Mail, Message
+from supabase_client import supabase
 import os, json, markdown, datetime, qrcode, base64
 from io import BytesIO
 
@@ -12,18 +13,13 @@ app.secret_key = "supersecure"
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
 app.config['MAIL_PORT'] = 587
 app.config['MAIL_USE_TLS'] = True
-app.config['MAIL_USERNAME'] = 'your_email@gmail.com'  # change to your email
-app.config['MAIL_PASSWORD'] = 'your_password'         # use app password or real password
+app.config['MAIL_USERNAME'] = '24mscs29@kristujayanti.com'  # change to your email
+app.config['MAIL_PASSWORD'] = 'ldrlnrwertezgpei'             # use app password
 mail = Mail(app)
 
 ARTICLE_DIR = "articles"
 if not os.path.exists(ARTICLE_DIR):
     os.makedirs(ARTICLE_DIR)
-
-# Temporary user store (can be extended to DB)
-users = {
-    "admin": {"password": "pass123", "email": "admin@example.com"}
-}
 
 def load_articles():
     articles = []
@@ -58,50 +54,72 @@ def login():
     if request.method == "POST":
         username = request.form['username']
         password = request.form['password']
-        user = users.get(username)
-        if user and user['password'] == password:
+
+        # Check if user exists with given username and password
+        response = supabase.table("user").select("*").eq("username", username).eq("password", password).execute()
+
+        if response.data and len(response.data) == 1:
             session["logged_in"] = True
             session["username"] = username
             flash("Login successful!", "success")
             return redirect(url_for("index"))
         else:
-            flash("Invalid credentials!", "danger")
+            flash("Invalid credentials. Please try again.", "danger")
+
     return render_template("login_register.html")
+
 
 @app.route("/register", methods=["POST"])
 def register():
-    username = request.form['username']
-    email = request.form['email']
-    password = request.form['password']
+    username = request.form["username"]
+    email = request.form["email"]
+    password = request.form["password"]
 
-    if username in users:
-        flash("Username already exists!", "warning")
+   # ✅ Check if email already exists BEFORE anything else
+    existing = supabase.table("user").select("*").eq("email", email).execute()
+    if existing.data:
+        flash("Email already exists, please use another.", "warning")
         return redirect(url_for("login"))
 
-    users[username] = {"password": password, "email": email}
-
-    # Generate QR for password
-    qr = qrcode.make(password)
+    # Generate QR Code for password
+    qr = qrcode.QRCode(box_size=5, border=2)
+    qr.add_data(password)
+    qr.make(fit=True)
+    img = qr.make_image(fill='black', back_color='white')
     qr_img_io = BytesIO()
-    qr.save(qr_img_io, format='PNG')
+    img.save(qr_img_io, format='PNG')
     qr_img_io.seek(0)
-    img_data = base64.b64encode(qr_img_io.read()).decode()
 
-    # Send welcome email
+    # Prepare welcome email
     msg = Message(f"Welcome to Peachy Blog, {username}!", sender=app.config['MAIL_USERNAME'], recipients=[email])
-    msg.body = f"Hello {username}!\n\nWelcome to Peachy Blog.\nYour login credentials:\nUsername: {username}\nPassword: {password}\n\nEnjoy blogging!"
+    msg.body = f"Hello {username}!\n\nYour credentials:\nUsername: {username}\nPassword: {password}"
     msg.html = f"""
     <h2>Welcome to Peachy Blog 🍑</h2>
     <p>Hello <b>{username}</b>,</p>
     <p>Thank you for registering!</p>
     <p><b>Username:</b> {username}<br><b>Password:</b> {password}</p>
     <p>Scan this QR to store your password:</p>
-    <img src='data:image/png;base64,{img_data}' alt='QR Code'>
+    <img src="cid:qr_code_image" alt="QR Code">
     """
-    mail.send(msg)
+    msg.attach("qr.png", "image/png", qr_img_io.getvalue(), disposition='inline', headers={"Content-ID": "<qr_code_image>"})
+
+    try:
+        mail.send(msg)
+    except Exception as e:
+        print("Mail error:", e)
+        flash("Could not send email. Please check your email config.", "danger")
+
+    # Insert into Supabase
+    supabase.table("user").insert({
+        "username": username,
+        "email": email,
+        "password": password  # Ideally, hash before storing
+    }).execute()
 
     flash("Registration successful! Check your email.", "success")
     return redirect(url_for("login"))
+
+
 
 @app.route("/forgot-password")
 def forgot():
