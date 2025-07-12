@@ -55,18 +55,30 @@ def login():
         username = request.form['username']
         password = request.form['password']
 
-        # Check if user exists with given username and password
         response = supabase.table("user").select("*").eq("username", username).eq("password", password).execute()
 
         if response.data and len(response.data) == 1:
+            user = response.data[0]
             session["logged_in"] = True
             session["username"] = username
+            session["is_admin"] = user.get("is_admin", False)  # store admin status
             flash("Login successful!", "success")
             return redirect(url_for("index"))
         else:
             flash("Invalid credentials. Please try again.", "danger")
 
     return render_template("login_register.html")
+
+@app.route("/admin")
+def admin_panel():
+    if not session.get("logged_in") or not session.get("is_admin"):
+        flash("You are not authorized to view this page.", "danger")
+        return redirect(url_for("index"))
+
+    users = supabase.table("user").select("username", "email", "is_admin").execute().data
+    articles = load_articles()
+    return render_template("admin_dashboard.html", users=users, articles=articles)
+
 
 
 @app.route("/register", methods=["POST"])
@@ -184,3 +196,5 @@ def delete_article(filename):
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)
+    
+    
